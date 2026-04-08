@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgroVision AI — Monitor</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:       #080c10;
+      --surface:  #0e1318;
+      --border:   #1a2230;
+      --border2:  #243040;
+      --accent:   #00e5a0;
+      --accent2:  #00b87a;
+      --warn:     #ff6b35;
+      --text:     #e2eaf4;
+      --muted:    #4a6080;
+      --dim:      #1e2d40;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Syne', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Scanline overlay ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.04) 2px,
+        rgba(0,0,0,0.04) 4px
+      );
+      pointer-events: none;
+      z-index: 1000;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 2rem;
+      height: 56px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      position: sticky; top: 0; z-index: 100;
+    }
+
+    .logo {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .logo-icon {
+      width: 28px; height: 28px;
+      border: 2px solid var(--accent);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      position: relative;
+    }
+    .logo-icon::before {
+      content: '';
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(0.85); }
+    }
+    .logo-text {
+      font-size: 15px; font-weight: 700; letter-spacing: 0.08em;
+      color: var(--text);
+    }
+    .logo-text span { color: var(--accent); }
+
+    .header-right {
+      display: flex; align-items: center; gap: 1.5rem;
+    }
+    .status-pill {
+      display: flex; align-items: center; gap: 6px;
+      font-family: 'DM Mono', monospace;
+      font-size: 11px; color: var(--accent);
+      border: 1px solid var(--accent2);
+      background: rgba(0,229,160,0.06);
+      padding: 4px 10px; border-radius: 20px;
+    }
+    .status-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 6px var(--accent);
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    .clock {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px; color: var(--muted);
+    }
+
+    /* ── Layout ── */
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      grid-template-rows: auto auto;
+      gap: 0;
+      height: calc(100vh - 56px);
+    }
+
+    /* ── Feed principal ── */
+    .feed-panel {
+      grid-row: 1 / 3;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .feed-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .feed-label {
+      font-size: 11px; font-weight: 600; letter-spacing: 0.12em;
+      color: var(--muted); text-transform: uppercase;
+    }
+    .feed-meta {
+      display: flex; align-items: center; gap: 12px;
+    }
+    .feed-tag {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px; color: var(--warn);
+      border: 1px solid rgba(255,107,53,0.3);
+      background: rgba(255,107,53,0.06);
+      padding: 2px 8px; border-radius: 4px;
+      letter-spacing: 0.06em;
+    }
+    .fps-tag {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px; color: var(--muted);
+    }
+
+    .feed-wrap {
+      flex: 1;
+      position: relative;
+      background: #020508;
+      overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    #feed-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .feed-offline {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 12px;
+      background: #020508;
+    }
+    .feed-offline-icon {
+      width: 48px; height: 48px;
+      border: 2px solid var(--border2);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--muted); font-size: 20px;
+    }
+    .feed-offline p {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px; color: var(--muted);
+    }
+
+    /* Corner markers */
+    .corner { position: absolute; width: 16px; height: 16px; }
+    .corner-tl { top: 12px; left: 12px; border-top: 2px solid var(--accent); border-left: 2px solid var(--accent); }
+    .corner-tr { top: 12px; right: 12px; border-top: 2px solid var(--accent); border-right: 2px solid var(--accent); }
+    .corner-bl { bottom: 12px; left: 12px; border-bottom: 2px solid var(--accent); border-left: 2px solid var(--accent); }
+    .corner-br { bottom: 12px; right: 12px; border-bottom: 2px solid var(--accent); border-right: 2px solid var(--accent); }
+
+    /* REC badge */
+    .rec-badge {
+      position: absolute; top: 20px; left: 50%;
+      transform: translateX(-50%);
+      display: flex; align-items: center; gap: 6px;
+      font-family: 'DM Mono', monospace;
+      font-size: 10px; color: var(--warn);
+      background: rgba(8,12,16,0.75);
+      border: 1px solid rgba(255,107,53,0.4);
+      padding: 4px 10px; border-radius: 4px;
+      backdrop-filter: blur(4px);
+      letter-spacing: 0.1em;
+    }
+    .rec-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--warn);
+      animation: pulse 1s ease-in-out infinite;
+    }
+
+    /* Stats overlay */
+    .feed-stats {
+      position: absolute; bottom: 16px; left: 50%;
+      transform: translateX(-50%);
+      display: flex; gap: 8px;
+    }
+    .stat-chip {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      background: rgba(8,12,16,0.8);
+      border: 1px solid var(--border2);
+      padding: 4px 10px; border-radius: 4px;
+      backdrop-filter: blur(4px);
+      color: var(--muted);
+    }
+    .stat-chip b { color: var(--accent); font-weight: 500; }
+
+    /* ── Sidebar ── */
+    .sidebar-top {
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .stats-row {
+      display: grid; grid-template-columns: 1fr 1fr;
+      border-bottom: 1px solid var(--border);
+    }
+    .stat-box {
+      padding: 16px 20px;
+      border-right: 1px solid var(--border);
+    }
+    .stat-box:last-child { border-right: none; }
+    .stat-box-label {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.1em;
+      color: var(--muted); text-transform: uppercase; margin-bottom: 6px;
+    }
+    .stat-box-val {
+      font-family: 'DM Mono', monospace;
+      font-size: 24px; font-weight: 500;
+      color: var(--accent);
+      line-height: 1;
+    }
+    .stat-box-sub {
+      font-size: 10px; color: var(--muted);
+      margin-top: 4px; font-family: 'DM Mono', monospace;
+    }
+
+    .detection-types {
+      padding: 14px 20px;
+    }
+    .det-title {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.1em;
+      color: var(--muted); text-transform: uppercase; margin-bottom: 10px;
+    }
+    .det-bars { display: flex; flex-direction: column; gap: 7px; }
+    .det-bar-row {
+      display: flex; align-items: center; gap: 8px;
+    }
+    .det-bar-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px; color: var(--text);
+      width: 70px; flex-shrink: 0;
+    }
+    .det-bar-track {
+      flex: 1; height: 4px;
+      background: var(--dim); border-radius: 2px; overflow: hidden;
+    }
+    .det-bar-fill {
+      height: 100%; border-radius: 2px;
+      background: var(--accent);
+      transition: width 0.6s ease;
+    }
+    .det-bar-count {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px; color: var(--muted);
+      width: 20px; text-align: right; flex-shrink: 0;
+    }
+
+    /* ── Events list ── */
+    .events-panel {
+      background: var(--bg);
+      overflow: hidden;
+      display: flex; flex-direction: column;
+    }
+    .events-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    .events-label {
+      font-size: 11px; font-weight: 600; letter-spacing: 0.12em;
+      color: var(--muted); text-transform: uppercase;
+    }
+    .events-count {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px; color: var(--accent);
+      background: rgba(0,229,160,0.08);
+      border: 1px solid rgba(0,229,160,0.2);
+      padding: 2px 8px; border-radius: 10px;
+    }
+
+    .events-list {
+      flex: 1; overflow-y: auto;
+      padding: 8px 0;
+    }
+    .events-list::-webkit-scrollbar { width: 3px; }
+    .events-list::-webkit-scrollbar-track { background: transparent; }
+    .events-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+    .event-item {
+      display: flex; gap: 10px; align-items: flex-start;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.15s;
+      cursor: default;
+    }
+    .event-item:hover { background: var(--surface); }
+    .event-item:last-child { border-bottom: none; }
+
+    .event-thumb {
+      width: 52px; height: 38px;
+      border-radius: 4px;
+      object-fit: cover;
+      flex-shrink: 0;
+      background: var(--dim);
+      border: 1px solid var(--border2);
+    }
+
+    .event-info { flex: 1; min-width: 0; }
+    .event-top {
+      display: flex; align-items: center;
+      justify-content: space-between; gap: 6px;
+      margin-bottom: 3px;
+    }
+    .event-name {
+      font-size: 12px; font-weight: 600;
+      color: var(--text); text-transform: capitalize;
+    }
+    .event-conf {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      padding: 1px 6px; border-radius: 3px;
+      flex-shrink: 0;
+    }
+    .conf-high { color: var(--accent); background: rgba(0,229,160,0.08); border: 1px solid rgba(0,229,160,0.2); }
+    .conf-mid  { color: #f0c040; background: rgba(240,192,64,0.08); border: 1px solid rgba(240,192,64,0.2); }
+    .conf-low  { color: var(--warn); background: rgba(255,107,53,0.08); border: 1px solid rgba(255,107,53,0.2); }
+
+    .event-time {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px; color: var(--muted);
+    }
+
+    .event-new {
+      animation: slideIn 0.3s ease;
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(8px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    .empty-state {
+      padding: 3rem 1rem; text-align: center;
+    }
+    .empty-state p {
+      font-family: 'DM Mono', monospace;
+      font-size: 11px; color: var(--muted);
+      line-height: 1.8;
+    }
+
+    /* ── Alert flash ── */
+    .alert-flash {
+      position: fixed; top: 70px; right: 20px;
+      background: rgba(255,107,53,0.12);
+      border: 1px solid rgba(255,107,53,0.5);
+      border-radius: 8px;
+      padding: 10px 16px;
+      display: flex; align-items: center; gap: 10px;
+      font-size: 12px; color: var(--warn);
+      font-family: 'DM Mono', monospace;
+      backdrop-filter: blur(8px);
+      z-index: 200;
+      transform: translateX(120%);
+      transition: transform 0.3s ease;
+    }
+    .alert-flash.show { transform: translateX(0); }
+    .alert-flash-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--warn); flex-shrink: 0;
+      animation: pulse 0.8s ease-in-out infinite;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon"></div>
+    <div class="logo-text">Agro<span>Vision</span></div>
+  </div>
+  <div class="header-right">
+    <div class="status-pill">
+      <div class="status-dot"></div>
+      ONLINE
+    </div>
+    <div class="clock" id="clock">--:--:--</div>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- Feed -->
+  <div class="feed-panel">
+    <div class="feed-header">
+      <span class="feed-label">Feed ao vivo — CAM 01</span>
+      <div class="feed-meta">
+        <span class="feed-tag">&#9679; REC</span>
+        <span class="fps-tag" id="fps-display">-- fps</span>
+      </div>
+    </div>
+    <div class="feed-wrap" id="feed-wrap">
+      <img id="feed-img" src="/frame" alt="feed"
+           onload="onFrameLoad()" onerror="onFrameError()">
+
+      <div class="feed-offline" id="feed-offline" style="display:none">
+        <div class="feed-offline-icon">⊘</div>
+        <p>AGUARDANDO CÂMERA...</p>
+      </div>
+
+      <div class="corner corner-tl"></div>
+      <div class="corner corner-tr"></div>
+      <div class="corner corner-bl"></div>
+      <div class="corner corner-br"></div>
+
+      <div class="rec-badge">
+        <div class="rec-dot"></div>
+        AO VIVO
+      </div>
+
+      <div class="feed-stats">
+        <div class="stat-chip">CONF <b>{{ "%.0f"|format(45) }}%</b></div>
+        <div class="stat-chip">MODELO <b>YOLOv8n</b></div>
+        <div class="stat-chip" id="detect-chip">DETEC <b id="chip-count">0</b></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sidebar topo -->
+  <div class="sidebar-top">
+    <div class="stats-row">
+      <div class="stat-box">
+        <div class="stat-box-label">Alertas</div>
+        <div class="stat-box-val" id="total-count">
+          {{ events | length }}
+        </div>
+        <div class="stat-box-sub">total registrado</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-box-label">Última detecção</div>
+        <div class="stat-box-val" style="font-size:13px; padding-top:4px;" id="last-time">
+          {% if events %}
+            {{ events[0].event_time[-8:] }}
+          {% else %}
+            --:--:--
+          {% endif %}
+        </div>
+        <div class="stat-box-sub">horário</div>
+      </div>
+    </div>
+
+    <div class="detection-types">
+      <div class="det-title">Detecções por classe</div>
+      <div class="det-bars" id="det-bars">
+        <!-- preenchido via JS -->
+        <div class="det-bar-row">
+          <div class="det-bar-label">person</div>
+          <div class="det-bar-track"><div class="det-bar-fill" style="width:0%"></div></div>
+          <div class="det-bar-count">0</div>
+        </div>
+        <div class="det-bar-row">
+          <div class="det-bar-label">car</div>
+          <div class="det-bar-track"><div class="det-bar-fill" style="width:0%"></div></div>
+          <div class="det-bar-count">0</div>
+        </div>
+        <div class="det-bar-row">
+          <div class="det-bar-label">truck</div>
+          <div class="det-bar-track"><div class="det-bar-fill" style="width:0%"></div></div>
+          <div class="det-bar-count">0</div>
+        </div>
+        <div class="det-bar-row">
+          <div class="det-bar-label">motorcycle</div>
+          <div class="det-bar-track"><div class="det-bar-fill" style="width:0%"></div></div>
+          <div class="det-bar-count">0</div>
+        </div>
+        <div class="det-bar-row">
+          <div class="det-bar-label">bus</div>
+          <div class="det-bar-track"><div class="det-bar-fill" style="width:0%"></div></div>
+          <div class="det-bar-count">0</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Events -->
+  <div class="events-panel">
+    <div class="events-header">
+      <span class="events-label">Eventos</span>
+      <span class="events-count" id="ev-badge">{{ events | length }}</span>
+    </div>
+    <div class="events-list" id="events-list">
+      {% if events %}
+        {% for e in events %}
+        <div class="event-item">
+          <img class="event-thumb" src="{{ e.image_path }}"
+               onerror="this.style.opacity='0.2'">
+          <div class="event-info">
+            <div class="event-top">
+              <span class="event-name">{{ e.label }}</span>
+              <span class="event-conf {% if e.confidence >= 0.75 %}conf-high{% elif e.confidence >= 0.55 %}conf-mid{% else %}conf-low{% endif %}">
+                {{ "%.0f"|format(e.confidence * 100) }}%
+              </span>
+            </div>
+            <div class="event-time">{{ e.event_time }}</div>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state">
+          <p>Nenhum evento<br>registrado ainda.</p>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<!-- Alert toast -->
+<div class="alert-flash" id="alert-flash">
+  <div class="alert-flash-dot"></div>
+  <span id="alert-text">person detectado</span>
+</div>
+
+<script>
+  // ── Clock ──
+  function updateClock() {
+    const now = new Date();
+    document.getElementById('clock').textContent =
+      now.toLocaleTimeString('pt-BR', {hour12: false});
+  }
+  setInterval(updateClock, 1000);
+  updateClock();
+
+  // ── Frame feed ──
+  let frameErrors = 0;
+  let lastFrameTime = Date.now();
+  let fpsHistory = [];
+
+  function onFrameLoad() {
+    frameErrors = 0;
+    document.getElementById('feed-offline').style.display = 'none';
+    document.getElementById('feed-img').style.display = 'block';
+    const now = Date.now();
+    const delta = now - lastFrameTime;
+    lastFrameTime = now;
+    fpsHistory.push(1000 / delta);
+    if (fpsHistory.length > 10) fpsHistory.shift();
+    const fps = Math.round(fpsHistory.reduce((a,b)=>a+b,0) / fpsHistory.length);
+    document.getElementById('fps-display').textContent = fps + ' fps';
+  }
+
+  function onFrameError() {
+    frameErrors++;
+    if (frameErrors > 3) {
+      document.getElementById('feed-offline').style.display = 'flex';
+      document.getElementById('feed-img').style.display = 'none';
+      document.getElementById('fps-display').textContent = '-- fps';
+    }
+  }
+
+  function refreshFrame() {
+    const img = document.getElementById('feed-img');
+    const newImg = new Image();
+    newImg.onload = () => {
+      img.src = newImg.src;
+      onFrameLoad();
+    };
+    newImg.onerror = onFrameError;
+    newImg.src = '/frame?' + Date.now();
+  }
+  setInterval(refreshFrame, 120);
+
+  // ── Events polling ──
+  let knownIds = new Set();
+  let classCounts = {};
+
+  // Seed known IDs from server-rendered events
+  document.querySelectorAll('.event-item').forEach((el, i) => {
+    // we'll track by count since IDs aren't in DOM directly
+  });
+
+  function confClass(c) {
+    if (c >= 0.75) return 'conf-high';
+    if (c >= 0.55) return 'conf-mid';
+    return 'conf-low';
+  }
+
+  function showAlert(label) {
+    const flash = document.getElementById('alert-flash');
+    document.getElementById('alert-text').textContent = label + ' detectado';
+    flash.classList.add('show');
+    setTimeout(() => flash.classList.remove('show'), 3000);
+  }
+
+  function updateBars(counts, total) {
+    const classes = ['person','car','truck','motorcycle','bus'];
+    const rows = document.querySelectorAll('#det-bars .det-bar-row');
+    rows.forEach((row, i) => {
+      const label = classes[i];
+      const count = counts[label] || 0;
+      const pct = total > 0 ? (count / total * 100) : 0;
+      row.querySelector('.det-bar-fill').style.width = pct + '%';
+      row.querySelector('.det-bar-count').textContent = count;
+    });
+  }
+
+  async function pollEvents() {
+    try {
+      const res = await fetch('/events');
+      const events = await res.json();
+
+      if (!events.length) return;
+
+      // Update totals
+      document.getElementById('total-count').textContent = events.length;
+      document.getElementById('ev-badge').textContent = events.length;
+      document.getElementById('last-time').textContent = events[0].event_time.slice(-8);
+      document.getElementById('chip-count').textContent = events.length;
+
+      // Count by class
+      const counts = {};
+      events.forEach(e => { counts[e.label] = (counts[e.label] || 0) + 1; });
+      updateBars(counts, events.length);
+
+      // Check for new events (compare top item)
+      const list = document.getElementById('events-list');
+      const firstItem = list.querySelector('.event-item');
+      const topEvent = events[0];
+      const topKey = topEvent.id || topEvent.event_time;
+
+      if (!knownIds.has(topKey)) {
+        knownIds.add(topKey);
+
+        // Remove empty state if present
+        const empty = list.querySelector('.empty-state');
+        if (empty) empty.remove();
+
+        // Prepend new item
+        const div = document.createElement('div');
+        div.className = 'event-item event-new';
+        div.innerHTML = `
+          <img class="event-thumb" src="${topEvent.image_path}" onerror="this.style.opacity='0.2'">
+          <div class="event-info">
+            <div class="event-top">
+              <span class="event-name">${topEvent.label}</span>
+              <span class="event-conf ${confClass(topEvent.confidence)}">
+                ${Math.round(topEvent.confidence * 100)}%
+              </span>
+            </div>
+            <div class="event-time">${topEvent.event_time}</div>
+          </div>
+        `;
+        list.insertBefore(div, list.firstChild);
+        showAlert(topEvent.label);
+
+        // Keep list trimmed
+        const items = list.querySelectorAll('.event-item');
+        if (items.length > 30) items[items.length - 1].remove();
+      }
+    } catch(e) {}
+  }
+
+  // Seed known IDs on load
+  fetch('/events').then(r=>r.json()).then(events => {
+    events.forEach(e => knownIds.add(e.id || e.event_time));
+    const counts = {};
+    events.forEach(e => { counts[e.label] = (counts[e.label] || 0) + 1; });
+    updateBars(counts, events.length);
+  });
+
+  setInterval(pollEvents, 2000);
+</script>
+</body>
+</html>
